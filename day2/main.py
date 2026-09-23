@@ -26,6 +26,9 @@ class TicketCreate(BaseModel):
 #inheritence
 class TicketResponse(TicketCreate):
     id : int
+@app.get("/tickets")
+def ticket_read_all():
+    return list(db.values())
 #apis
 @app.get("/tickets/{id}")
 def ticket_read_id(id : int):
