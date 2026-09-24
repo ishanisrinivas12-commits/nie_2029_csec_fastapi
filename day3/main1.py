@@ -29,6 +29,9 @@ db = client["hospital"]
 
 requests_collection = db["requests"]
 users_collection = db["users"]
+departments_collection = db["departments"]
+categories_collection = db["categories"]
+config_collection = db["config"]
 
 
 # =================================================
@@ -54,10 +57,22 @@ print(db.list_collection_names())
 
 
 # =================================================
-# REQUEST SCHEMA
+# REQUEST SCHEMAS
 # =================================================
 
 class RequestCreate(BaseModel):
+    title: str
+    description: str
+    department: str
+    category: str
+    priority: str
+    status: str = "New"
+    assignedTo: str | None = None
+
+
+class RequestResponse(BaseModel):
+    id: str
+    requestId: str
     title: str
     description: str
     department: str
@@ -68,13 +83,8 @@ class RequestCreate(BaseModel):
     assignedTo: str | None = None
 
 
-class RequestResponse(RequestCreate):
-    id: str
-    requestId: str
-
-
 # =================================================
-# USER SCHEMA
+# USER SCHEMAS
 # =================================================
 
 class UserCreate(BaseModel):
@@ -93,6 +103,51 @@ class UserResponse(BaseModel):
     role: str
     department: str
     status: str
+
+
+# =================================================
+# DEPARTMENT SCHEMAS
+# =================================================
+
+class DepartmentCreate(BaseModel):
+    name: str
+
+
+class DepartmentResponse(BaseModel):
+    id: str
+    name: str
+
+
+# =================================================
+# CATEGORY SCHEMAS
+# =================================================
+
+class CategoryCreate(BaseModel):
+    name: str
+
+
+class CategoryResponse(BaseModel):
+    id: str
+    name: str
+
+
+# =================================================
+# CONFIG SCHEMAS
+# =================================================
+
+class ConfigCreate(BaseModel):
+    hospital_name: str
+    auto_assign_enabled: bool
+    request_statuses: list[str]
+    priority_levels: list[str]
+
+
+class ConfigResponse(BaseModel):
+    id: str
+    hospital_name: str
+    auto_assign_enabled: bool
+    request_statuses: list[str]
+    priority_levels: list[str]
 
 
 # =================================================
@@ -141,17 +196,56 @@ def user_helper(user):
 
 
 # =================================================
+# DEPARTMENT HELPER
+# =================================================
+
+def department_helper(department):
+
+    return {
+        "id": str(department["_id"]),
+        "name": department["name"]
+    }
+
+
+# =================================================
+# CATEGORY HELPER
+# =================================================
+
+def category_helper(category):
+
+    return {
+        "id": str(category["_id"]),
+        "name": category["name"]
+    }
+
+
+# =================================================
+# CONFIG HELPER
+# =================================================
+
+def config_helper(config):
+
+    return {
+        "id": str(config["_id"]),
+        "hospital_name": config["hospital_name"],
+        "auto_assign_enabled": config["auto_assign_enabled"],
+        "request_statuses": config["request_statuses"],
+        "priority_levels": config["priority_levels"]
+    }
+
+
+# =================================================
 # CREATE JWT
 # =================================================
 
-def create_token(username: str, role: str):
+def create_token(email: str, role: str):
 
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=TOKEN_EXPIRE_MINS
     )
 
     payload = {
-        "sub": username,
+        "sub": email,
         "role": role,
         "exp": expire
     }
@@ -181,10 +275,10 @@ def get_current_user(
             algorithms=[ALGORITHM]
         )
 
-        username = payload.get("sub")
+        email = payload.get("sub")
         role = payload.get("role")
 
-        if username is None or role is None:
+        if email is None or role is None:
 
             raise HTTPException(
                 status_code=401,
@@ -206,14 +300,14 @@ def get_current_user(
         )
 
     user = users_collection.find_one({
-        "email": username
+        "email": email
     })
 
     if user is None:
 
         raise HTTPException(
             status_code=404,
-            detail="User Not Found"
+            detail="User not found"
         )
 
     return user
@@ -242,18 +336,24 @@ def require_roles(*allowed_roles):
 
 
 # =================================================
-# USER API
+# USER APIs
 # =================================================
 
 
 # CREATE USER
+# Only Admin
 
 @app.post(
     "/users",
     status_code=201,
     response_model=UserResponse
 )
-def create_user(user: UserCreate):
+def create_user(
+    user: UserCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
 
     queried_user = users_collection.find_one({
         "email": user.email
@@ -286,6 +386,58 @@ def create_user(user: UserCreate):
     })
 
     return user_helper(new_user)
+
+
+# READ ALL USERS
+# Logged-in users
+
+@app.get(
+    "/users",
+    response_model=list[UserResponse]
+)
+def get_users(
+    current_user=Depends(get_current_user)
+):
+
+    users = users_collection.find()
+
+    return [
+        user_helper(user)
+        for user in users
+    ]
+
+
+# READ ONE USER
+# Logged-in users
+
+@app.get(
+    "/users/{id}",
+    response_model=UserResponse
+)
+def get_user(
+    id: str,
+    current_user=Depends(get_current_user)
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user ID"
+        )
+
+    user = users_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    if not user:
+
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    return user_helper(user)
 
 
 # =================================================
@@ -338,7 +490,7 @@ def login(
 
 
 # CREATE REQUEST
-# All roles can create requests
+# All roles can create
 
 @app.post(
     "/requests",
@@ -363,6 +515,9 @@ def request_create(
 
     request_dict["requestId"] = f"REQ{count + 1:03d}"
 
+    # Automatically use logged-in user's email
+    request_dict["raisedBy"] = current_user["email"]
+
     result = requests_collection.insert_one(
         request_dict
     )
@@ -374,10 +529,8 @@ def request_create(
     return request_helper(new_request)
 
 
-# =================================================
 # READ ALL REQUESTS
-# All roles can read requests
-# =================================================
+# All roles can read
 
 @app.get(
     "/requests",
@@ -404,10 +557,8 @@ def request_read_all(
     return requests
 
 
-# =================================================
 # READ REQUEST BY ID
-# All roles can read requests
-# =================================================
+# All roles can read
 
 @app.get(
     "/requests/{id}",
@@ -446,10 +597,8 @@ def request_read_by_id(
     return request_helper(request_result)
 
 
-# =================================================
 # UPDATE REQUEST
 # Support Engineer, Team Lead and Admin
-# =================================================
 
 @app.put(
     "/requests/{id}",
@@ -497,10 +646,8 @@ def request_update(
     return request_helper(new_request)
 
 
-# =================================================
 # DELETE REQUEST
 # Only Admin
-# =================================================
 
 @app.delete("/requests/{id}")
 def request_delete(
@@ -531,3 +678,455 @@ def request_delete(
     return {
         "message": "request deleted successfully"
     }
+
+
+# =================================================
+# DEPARTMENT APIs
+# =================================================
+
+
+# CREATE DEPARTMENT
+# Only Admin
+
+@app.post(
+    "/departments",
+    status_code=201,
+    response_model=DepartmentResponse
+)
+def create_department(
+    department: DepartmentCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    existing = departments_collection.find_one({
+        "name": department.name
+    })
+
+    if existing:
+
+        raise HTTPException(
+            status_code=409,
+            detail="Department already exists"
+        )
+
+    result = departments_collection.insert_one(
+        department.model_dump()
+    )
+
+    new_department = departments_collection.find_one({
+        "_id": result.inserted_id
+    })
+
+    return department_helper(new_department)
+
+
+# READ ALL DEPARTMENTS
+# All logged-in users
+
+@app.get(
+    "/departments",
+    response_model=list[DepartmentResponse]
+)
+def get_departments(
+    current_user=Depends(get_current_user)
+):
+
+    departments = departments_collection.find()
+
+    return [
+        department_helper(department)
+        for department in departments
+    ]
+
+
+# READ DEPARTMENT BY ID
+
+@app.get(
+    "/departments/{id}",
+    response_model=DepartmentResponse
+)
+def get_department(
+    id: str,
+    current_user=Depends(get_current_user)
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid department ID"
+        )
+
+    department = departments_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    if not department:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Department not found"
+        )
+
+    return department_helper(department)
+
+
+# UPDATE DEPARTMENT
+# Only Admin
+
+@app.put(
+    "/departments/{id}",
+    response_model=DepartmentResponse
+)
+def update_department(
+    id: str,
+    department: DepartmentCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid department ID"
+        )
+
+    result = departments_collection.update_one(
+        {
+            "_id": ObjectId(id)
+        },
+        {
+            "$set": department.model_dump()
+        }
+    )
+
+    if result.matched_count == 0:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Department not found"
+        )
+
+    updated_department = departments_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    return department_helper(updated_department)
+
+
+# DELETE DEPARTMENT
+# Only Admin
+
+@app.delete("/departments/{id}")
+def delete_department(
+    id: str,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid department ID"
+        )
+
+    result = departments_collection.delete_one({
+        "_id": ObjectId(id)
+    })
+
+    if result.deleted_count == 0:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Department not found"
+        )
+
+    return {
+        "message": "department deleted successfully"
+    }
+
+
+# =================================================
+# CATEGORY APIs
+# =================================================
+
+
+# CREATE CATEGORY
+# Only Admin
+
+@app.post(
+    "/categories",
+    status_code=201,
+    response_model=CategoryResponse
+)
+def create_category(
+    category: CategoryCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    existing = categories_collection.find_one({
+        "name": category.name
+    })
+
+    if existing:
+
+        raise HTTPException(
+            status_code=409,
+            detail="Category already exists"
+        )
+
+    result = categories_collection.insert_one(
+        category.model_dump()
+    )
+
+    new_category = categories_collection.find_one({
+        "_id": result.inserted_id
+    })
+
+    return category_helper(new_category)
+
+
+# READ ALL CATEGORIES
+# All logged-in users
+
+@app.get(
+    "/categories",
+    response_model=list[CategoryResponse]
+)
+def get_categories(
+    current_user=Depends(get_current_user)
+):
+
+    categories = categories_collection.find()
+
+    return [
+        category_helper(category)
+        for category in categories
+    ]
+
+
+# READ CATEGORY BY ID
+
+@app.get(
+    "/categories/{id}",
+    response_model=CategoryResponse
+)
+def get_category(
+    id: str,
+    current_user=Depends(get_current_user)
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category ID"
+        )
+
+    category = categories_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    if not category:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Category not found"
+        )
+
+    return category_helper(category)
+
+
+# UPDATE CATEGORY
+# Only Admin
+
+@app.put(
+    "/categories/{id}",
+    response_model=CategoryResponse
+)
+def update_category(
+    id: str,
+    category: CategoryCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category ID"
+        )
+
+    result = categories_collection.update_one(
+        {
+            "_id": ObjectId(id)
+        },
+        {
+            "$set": category.model_dump()
+        }
+    )
+
+    if result.matched_count == 0:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Category not found"
+        )
+
+    updated_category = categories_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    return category_helper(updated_category)
+
+
+# DELETE CATEGORY
+# Only Admin
+
+@app.delete("/categories/{id}")
+def delete_category(
+    id: str,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category ID"
+        )
+
+    result = categories_collection.delete_one({
+        "_id": ObjectId(id)
+    })
+
+    if result.deleted_count == 0:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Category not found"
+        )
+
+    return {
+        "message": "category deleted successfully"
+    }
+
+
+# =================================================
+# CONFIG APIs
+# =================================================
+
+
+# CREATE CONFIG
+# Only Admin
+
+@app.post(
+    "/config",
+    status_code=201,
+    response_model=ConfigResponse
+)
+def create_config(
+    config: ConfigCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    existing = config_collection.find_one()
+
+    if existing:
+
+        raise HTTPException(
+            status_code=409,
+            detail="Config already exists"
+        )
+
+    result = config_collection.insert_one(
+        config.model_dump()
+    )
+
+    new_config = config_collection.find_one({
+        "_id": result.inserted_id
+    })
+
+    return config_helper(new_config)
+
+
+# READ CONFIG
+# All logged-in users
+
+@app.get(
+    "/config",
+    response_model=ConfigResponse
+)
+def get_config(
+    current_user=Depends(get_current_user)
+):
+
+    config = config_collection.find_one()
+
+    if not config:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Config not found"
+        )
+
+    return config_helper(config)
+
+
+# UPDATE CONFIG
+# Only Admin
+
+@app.put(
+    "/config/{id}",
+    response_model=ConfigResponse
+)
+def update_config(
+    id: str,
+    config: ConfigCreate,
+    current_user=Depends(
+        require_roles("Admin")
+    )
+):
+
+    if not ObjectId.is_valid(id):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid config ID"
+        )
+
+    result = config_collection.update_one(
+        {
+            "_id": ObjectId(id)
+        },
+        {
+            "$set": config.model_dump()
+        }
+    )
+
+    if result.matched_count == 0:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Config not found"
+        )
+
+    updated_config = config_collection.find_one({
+        "_id": ObjectId(id)
+    })
+
+    return config_helper(updated_config)
