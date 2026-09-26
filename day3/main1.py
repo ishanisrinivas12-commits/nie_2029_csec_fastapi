@@ -6,6 +6,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 import jwt
+import os
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from datetime import datetime, timedelta, timezone
@@ -30,7 +31,8 @@ app.add_middleware(
 # MONGODB CONFIG
 # =================================================
 
-URL = "mongodb://127.0.0.1:27017"
+URL = os.getenv("MONGO_URL")
+
 
 client = MongoClient(URL)
 
