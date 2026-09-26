@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from pymongo import MongoClient
@@ -15,6 +16,14 @@ from datetime import datetime, timedelta, timezone
 # =================================================
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 
 # =================================================
@@ -50,7 +59,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 
 # =================================================
-# CHECK DATABASE CONNECTION
+# CHECK DATABASE
 # =================================================
 
 print(db.list_collection_names())
@@ -235,7 +244,7 @@ def config_helper(config):
 
 
 # =================================================
-# CREATE JWT
+# CREATE JWT TOKEN
 # =================================================
 
 def create_token(email: str, role: str):
@@ -341,19 +350,15 @@ def require_roles(*allowed_roles):
 
 
 # CREATE USER
-# Only Admin
+# No login required
+# This is so users can be created from Swagger
 
 @app.post(
     "/users",
     status_code=201,
     response_model=UserResponse
 )
-def create_user(
-    user: UserCreate,
-    current_user=Depends(
-        require_roles("Admin")
-    )
-):
+def create_user(user: UserCreate):
 
     queried_user = users_collection.find_one({
         "email": user.email
@@ -379,7 +384,9 @@ def create_user(
         "status": user.status
     }
 
-    result = users_collection.insert_one(user_data)
+    result = users_collection.insert_one(
+        user_data
+    )
 
     new_user = users_collection.find_one({
         "_id": result.inserted_id
@@ -388,8 +395,9 @@ def create_user(
     return user_helper(new_user)
 
 
-# READ ALL USERS
-# Logged-in users
+# =================================================
+# GET ALL USERS
+# =================================================
 
 @app.get(
     "/users",
@@ -407,8 +415,9 @@ def get_users(
     ]
 
 
-# READ ONE USER
-# Logged-in users
+# =================================================
+# GET USER BY ID
+# =================================================
 
 @app.get(
     "/users/{id}",
@@ -490,7 +499,8 @@ def login(
 
 
 # CREATE REQUEST
-# All roles can create
+# Department Staff, Support Engineer,
+# Team Lead, Admin
 
 @app.post(
     "/requests",
@@ -515,7 +525,7 @@ def request_create(
 
     request_dict["requestId"] = f"REQ{count + 1:03d}"
 
-    # Automatically use logged-in user's email
+    # Automatically store who raised the request
     request_dict["raisedBy"] = current_user["email"]
 
     result = requests_collection.insert_one(
@@ -529,8 +539,9 @@ def request_create(
     return request_helper(new_request)
 
 
+# =================================================
 # READ ALL REQUESTS
-# All roles can read
+# =================================================
 
 @app.get(
     "/requests",
@@ -557,8 +568,9 @@ def request_read_all(
     return requests
 
 
+# =================================================
 # READ REQUEST BY ID
-# All roles can read
+# =================================================
 
 @app.get(
     "/requests/{id}",
@@ -597,8 +609,10 @@ def request_read_by_id(
     return request_helper(request_result)
 
 
+# =================================================
 # UPDATE REQUEST
-# Support Engineer, Team Lead and Admin
+# Support Engineer, Team Lead, Admin
+# =================================================
 
 @app.put(
     "/requests/{id}",
@@ -646,8 +660,10 @@ def request_update(
     return request_helper(new_request)
 
 
+# =================================================
 # DELETE REQUEST
-# Only Admin
+# Admin only
+# =================================================
 
 @app.delete("/requests/{id}")
 def request_delete(
@@ -686,7 +702,7 @@ def request_delete(
 
 
 # CREATE DEPARTMENT
-# Only Admin
+# Admin only
 
 @app.post(
     "/departments",
@@ -722,8 +738,7 @@ def create_department(
     return department_helper(new_department)
 
 
-# READ ALL DEPARTMENTS
-# All logged-in users
+# GET ALL DEPARTMENTS
 
 @app.get(
     "/departments",
@@ -741,7 +756,7 @@ def get_departments(
     ]
 
 
-# READ DEPARTMENT BY ID
+# GET DEPARTMENT BY ID
 
 @app.get(
     "/departments/{id}",
@@ -774,7 +789,7 @@ def get_department(
 
 
 # UPDATE DEPARTMENT
-# Only Admin
+# Admin only
 
 @app.put(
     "/departments/{id}",
@@ -819,7 +834,7 @@ def update_department(
 
 
 # DELETE DEPARTMENT
-# Only Admin
+# Admin only
 
 @app.delete("/departments/{id}")
 def delete_department(
@@ -858,7 +873,7 @@ def delete_department(
 
 
 # CREATE CATEGORY
-# Only Admin
+# Admin only
 
 @app.post(
     "/categories",
@@ -894,8 +909,7 @@ def create_category(
     return category_helper(new_category)
 
 
-# READ ALL CATEGORIES
-# All logged-in users
+# GET ALL CATEGORIES
 
 @app.get(
     "/categories",
@@ -913,7 +927,7 @@ def get_categories(
     ]
 
 
-# READ CATEGORY BY ID
+# GET CATEGORY BY ID
 
 @app.get(
     "/categories/{id}",
@@ -946,7 +960,7 @@ def get_category(
 
 
 # UPDATE CATEGORY
-# Only Admin
+# Admin only
 
 @app.put(
     "/categories/{id}",
@@ -991,7 +1005,7 @@ def update_category(
 
 
 # DELETE CATEGORY
-# Only Admin
+# Admin only
 
 @app.delete("/categories/{id}")
 def delete_category(
@@ -1030,7 +1044,7 @@ def delete_category(
 
 
 # CREATE CONFIG
-# Only Admin
+# Admin only
 
 @app.post(
     "/config",
@@ -1064,7 +1078,7 @@ def create_config(
     return config_helper(new_config)
 
 
-# READ CONFIG
+# GET CONFIG
 # All logged-in users
 
 @app.get(
@@ -1088,7 +1102,7 @@ def get_config(
 
 
 # UPDATE CONFIG
-# Only Admin
+# Admin only
 
 @app.put(
     "/config/{id}",
