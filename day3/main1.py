@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from pymongo import MongoClient
@@ -10,25 +9,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from datetime import datetime, timedelta, timezone
 
-
-# =================================================
-# APP
-# =================================================
-
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-
-# =================================================
-# MONGODB CONFIG
-# =================================================
 
 URL = "mongodb://127.0.0.1:27017"
 
@@ -42,11 +23,6 @@ departments_collection = db["departments"]
 categories_collection = db["categories"]
 config_collection = db["config"]
 
-
-# =================================================
-# SECURITY CONFIG
-# =================================================
-
 password_hash = PasswordHash.recommended()
 
 SECRET_KEY = "HospitalServiceDeskSecurityKey-ChangeThis"
@@ -58,17 +34,7 @@ TOKEN_EXPIRE_MINS = 30
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 
-# =================================================
-# CHECK DATABASE
-# =================================================
-
 print(db.list_collection_names())
-
-
-# =================================================
-# REQUEST SCHEMAS
-# =================================================
-
 class RequestCreate(BaseModel):
     title: str
     description: str
@@ -91,11 +57,6 @@ class RequestResponse(BaseModel):
     raisedBy: str
     assignedTo: str | None = None
 
-
-# =================================================
-# USER SCHEMAS
-# =================================================
-
 class UserCreate(BaseModel):
     name: str
     email: str
@@ -113,11 +74,6 @@ class UserResponse(BaseModel):
     department: str
     status: str
 
-
-# =================================================
-# DEPARTMENT SCHEMAS
-# =================================================
-
 class DepartmentCreate(BaseModel):
     name: str
 
@@ -127,9 +83,6 @@ class DepartmentResponse(BaseModel):
     name: str
 
 
-# =================================================
-# CATEGORY SCHEMAS
-# =================================================
 
 class CategoryCreate(BaseModel):
     name: str
@@ -138,11 +91,6 @@ class CategoryCreate(BaseModel):
 class CategoryResponse(BaseModel):
     id: str
     name: str
-
-
-# =================================================
-# CONFIG SCHEMAS
-# =================================================
 
 class ConfigCreate(BaseModel):
     hospital_name: str
@@ -158,19 +106,9 @@ class ConfigResponse(BaseModel):
     request_statuses: list[str]
     priority_levels: list[str]
 
-
-# =================================================
-# TOKEN SCHEMA
-# =================================================
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
-
-
-# =================================================
-# REQUEST HELPER
-# =================================================
 
 def request_helper(request):
 
@@ -188,9 +126,6 @@ def request_helper(request):
     }
 
 
-# =================================================
-# USER HELPER
-# =================================================
 
 def user_helper(user):
 
@@ -204,9 +139,7 @@ def user_helper(user):
     }
 
 
-# =================================================
-# DEPARTMENT HELPER
-# =================================================
+
 
 def department_helper(department):
 
@@ -216,9 +149,6 @@ def department_helper(department):
     }
 
 
-# =================================================
-# CATEGORY HELPER
-# =================================================
 
 def category_helper(category):
 
@@ -228,9 +158,6 @@ def category_helper(category):
     }
 
 
-# =================================================
-# CONFIG HELPER
-# =================================================
 
 def config_helper(config):
 
@@ -243,9 +170,6 @@ def config_helper(config):
     }
 
 
-# =================================================
-# CREATE JWT TOKEN
-# =================================================
 
 def create_token(email: str, role: str):
 
@@ -268,9 +192,7 @@ def create_token(email: str, role: str):
     return token
 
 
-# =================================================
-# GET CURRENT USER
-# =================================================
+
 
 def get_current_user(
     token: str = Depends(oauth2_scheme)
@@ -322,9 +244,7 @@ def get_current_user(
     return user
 
 
-# =================================================
-# ROLE CHECK
-# =================================================
+
 
 def require_roles(*allowed_roles):
 
@@ -343,15 +263,6 @@ def require_roles(*allowed_roles):
 
     return check_role
 
-
-# =================================================
-# USER APIs
-# =================================================
-
-
-# CREATE USER
-# No login required
-# This is so users can be created from Swagger
 
 @app.post(
     "/users",
@@ -395,9 +306,7 @@ def create_user(user: UserCreate):
     return user_helper(new_user)
 
 
-# =================================================
-# GET ALL USERS
-# =================================================
+
 
 @app.get(
     "/users",
@@ -413,11 +322,6 @@ def get_users(
         user_helper(user)
         for user in users
     ]
-
-
-# =================================================
-# GET USER BY ID
-# =================================================
 
 @app.get(
     "/users/{id}",
@@ -449,9 +353,6 @@ def get_user(
     return user_helper(user)
 
 
-# =================================================
-# LOGIN
-# =================================================
 
 @app.post(
     "/login",
@@ -493,14 +394,6 @@ def login(
     }
 
 
-# =================================================
-# REQUEST APIs
-# =================================================
-
-
-# CREATE REQUEST
-# Department Staff, Support Engineer,
-# Team Lead, Admin
 
 @app.post(
     "/requests",
@@ -539,9 +432,7 @@ def request_create(
     return request_helper(new_request)
 
 
-# =================================================
-# READ ALL REQUESTS
-# =================================================
+
 
 @app.get(
     "/requests",
@@ -567,10 +458,6 @@ def request_read_all(
 
     return requests
 
-
-# =================================================
-# READ REQUEST BY ID
-# =================================================
 
 @app.get(
     "/requests/{id}",
@@ -609,10 +496,6 @@ def request_read_by_id(
     return request_helper(request_result)
 
 
-# =================================================
-# UPDATE REQUEST
-# Support Engineer, Team Lead, Admin
-# =================================================
 
 @app.put(
     "/requests/{id}",
@@ -660,10 +543,7 @@ def request_update(
     return request_helper(new_request)
 
 
-# =================================================
-# DELETE REQUEST
-# Admin only
-# =================================================
+
 
 @app.delete("/requests/{id}")
 def request_delete(
@@ -696,13 +576,6 @@ def request_delete(
     }
 
 
-# =================================================
-# DEPARTMENT APIs
-# =================================================
-
-
-# CREATE DEPARTMENT
-# Admin only
 
 @app.post(
     "/departments",
@@ -738,8 +611,6 @@ def create_department(
     return department_helper(new_department)
 
 
-# GET ALL DEPARTMENTS
-
 @app.get(
     "/departments",
     response_model=list[DepartmentResponse]
@@ -756,7 +627,7 @@ def get_departments(
     ]
 
 
-# GET DEPARTMENT BY ID
+
 
 @app.get(
     "/departments/{id}",
